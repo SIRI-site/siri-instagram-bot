@@ -28,8 +28,9 @@ jobs:
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           DRIVE_BIBLIOTECA_FOLDER_ID: ${{ secrets.DRIVE_BIBLIOTECA_FOLDER_ID }}
-          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           IG_PAGE_ACCESS_TOKEN: ${{ secrets.IG_PAGE_ACCESS_TOKEN }}
           IG_BUSINESS_ACCOUNT_ID: ${{ secrets.IG_BUSINESS_ACCOUNT_ID }}
+          SIRI_DATA_REPO: ${{ secrets.SIRI_DATA_REPO }}
+          SIRI_DATA_TOKEN: ${{ secrets.SIRI_DATA_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: python main.py
