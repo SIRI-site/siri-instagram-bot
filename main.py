@@ -68,9 +68,9 @@ GITHUB_REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "")
 # dados do app de orçamento). Recomendado: um repositório PRIVADO
 # separado do código do app, para que salvar dados nunca dispare um
 # novo deploy na Vercel. Ex: "seuusuario/siri-dados"
-GITHUB_DATA_REPO = os.environ["GITHUB_DATA_REPO"]
-GITHUB_DATA_PATH = os.environ.get("GITHUB_DATA_PATH", "siri_database.json")
-GITHUB_DATA_TOKEN = os.environ["GITHUB_DATA_TOKEN"]
+SIRI_DATA_REPO = os.environ["SIRI_DATA_REPO"]
+SIRI_DATA_PATH = os.environ.get("SIRI_DATA_PATH", "siri_database.json")
+SIRI_DATA_TOKEN = os.environ["SIRI_DATA_TOKEN"]
 
 # Quantas fotos no máximo/mínimo entram em cada carrossel automático
 MAX_FOTOS_CARROSSEL = int(os.environ.get("MAX_FOTOS_CARROSSEL", "5"))
@@ -95,9 +95,9 @@ GITHUB_API_BASE = "https://api.github.com"
 # ---------------------------------------------------------------------------
 def ler_banco_de_dados_app():
     """Retorna (dados_decodificados: dict, sha_atual: str)."""
-    url = f"{GITHUB_API_BASE}/repos/{GITHUB_DATA_REPO}/contents/{GITHUB_DATA_PATH}"
+    url = f"{GITHUB_API_BASE}/repos/{SIRI_DATA_REPO}/contents/{SIRI_DATA_PATH}"
     headers = {
-        "Authorization": f"Bearer {GITHUB_DATA_TOKEN}",
+        "Authorization": f"Bearer {SIRI_DATA_TOKEN}",
         "Accept": "application/vnd.github.v3+json",
     }
     resp = requests.get(url, headers=headers, params={"nocache": str(time.time())})
@@ -131,9 +131,9 @@ def marcar_post_como_publicado_no_app(post_id, tentativas=5):
         conteudo_novo = json.dumps(dados, ensure_ascii=False, indent=2)
         conteudo_base64 = base64.b64encode(conteudo_novo.encode("utf-8")).decode("utf-8")
 
-        url = f"{GITHUB_API_BASE}/repos/{GITHUB_DATA_REPO}/contents/{GITHUB_DATA_PATH}"
+        url = f"{GITHUB_API_BASE}/repos/{SIRI_DATA_REPO}/contents/{SIRI_DATA_PATH}"
         headers = {
-            "Authorization": f"Bearer {GITHUB_DATA_TOKEN}",
+            "Authorization": f"Bearer {SIRI_DATA_TOKEN}",
             "Accept": "application/vnd.github.v3+json",
         }
         body = {
