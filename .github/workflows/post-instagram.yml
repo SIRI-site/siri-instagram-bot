@@ -1,0 +1,35 @@
+name: Publicar post automático no Instagram
+
+on:
+  schedule:
+    # Roda todo dia às 13:00 UTC (10:00 no horário de Brasília, ajuste se quiser outro horário)
+    - cron: "0 13 * * *"
+  workflow_dispatch: {}  # permite rodar manualmente pelo GitHub também
+
+permissions:
+  contents: write  # necessário para o robô poder commitar as imagens comprimidas
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar o código do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      - name: Rodar o robô de publicação
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          DRIVE_BIBLIOTECA_FOLDER_ID: ${{ secrets.DRIVE_BIBLIOTECA_FOLDER_ID }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          IG_PAGE_ACCESS_TOKEN: ${{ secrets.IG_PAGE_ACCESS_TOKEN }}
+          IG_BUSINESS_ACCOUNT_ID: ${{ secrets.IG_BUSINESS_ACCOUNT_ID }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python main.py
