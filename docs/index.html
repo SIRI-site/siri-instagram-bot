@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Post_BOT — Painel do Projeto SIRI</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+  :root{
+    --bg: #101a16;
+    --bg-raised: #16221d;
+    --line: #26362f;
+    --moss: #5a8c6a;
+    --moss-bright: #7fb98d;
+    --coral: #e8735a;
+    --paper: #ece7db;
+    --paper-dim: #a8b3ac;
+    --mono: #8fa79c;
+  }
+
+  *{ box-sizing: border-box; }
+
+  html, body{
+    margin:0;
+    padding:0;
+    background: var(--bg);
+    color: var(--paper);
+    font-family: 'Space Grotesk', sans-serif;
+    min-height: 100vh;
+  }
+
+  body{
+    background-image:
+      radial-gradient(circle at 85% -10%, rgba(90,140,106,0.18), transparent 45%),
+      radial-gradient(circle at -10% 110%, rgba(232,115,90,0.10), transparent 40%);
+  }
+
+  .wrap{
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 64px 24px 48px;
+  }
+
+  /* ---- Signature element: rotating sort-arrow mark ---- */
+  .mark{
+    width: 46px;
+    height: 46px;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .mark svg{
+    width: 100%;
+    height: 100%;
+    animation: spin 14s linear infinite;
+    transform-origin: 50% 50%;
+  }
+  @media (prefers-reduced-motion: reduce){
+    .mark svg{ animation: none; }
+  }
+  @keyframes spin{
+    to{ transform: rotate(360deg); }
+  }
+
+  header{
+    display:flex;
+    align-items:center;
+    gap: 18px;
+    margin-bottom: 8px;
+  }
+
+  .eyebrow{
+    font-family:'IBM Plex Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--mono);
+    margin: 0 0 6px;
+  }
+
+  h1{
+    font-family:'Archivo Black', sans-serif;
+    font-weight:400;
+    font-size: clamp(30px, 5vw, 44px);
+    line-height: 1.05;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+
+  h1 span{ color: var(--moss-bright); }
+
+  .lede{
+    color: var(--paper-dim);
+    font-size: 16px;
+    line-height: 1.6;
+    max-width: 56ch;
+    margin: 22px 0 44px;
+  }
+
+  .status-strip{
+    display:flex;
+    align-items:center;
+    gap: 10px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size: 12.5px;
+    color: var(--mono);
+    border: 1px solid var(--line);
+    background: var(--bg-raised);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 40px;
+    width: fit-content;
+  }
+
+  .dot{
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--moss-bright);
+    box-shadow: 0 0 0 3px rgba(127,185,141,0.18);
+  }
+
+  .grid{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+
+  @media (max-width: 620px){
+    .grid{ grid-template-columns: 1fr; }
+  }
+
+  .card{
+    display:block;
+    text-decoration:none;
+    color: inherit;
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 24px;
+    transition: border-color .18s ease, transform .18s ease, background .18s ease;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .card:hover, .card:focus-visible{
+    border-color: var(--moss);
+    transform: translateY(-2px);
+    background: #182720;
+  }
+
+  .card:focus-visible{
+    outline: 2px solid var(--moss-bright);
+    outline-offset: 2px;
+  }
+
+  .card-tag{
+    font-family:'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--coral);
+    margin: 0 0 10px;
+  }
+
+  .card h2{
+    font-family:'Space Grotesk', sans-serif;
+    font-weight: 600;
+    font-size: 19px;
+    margin: 0 0 8px;
+  }
+
+  .card p{
+    font-size: 14px;
+    color: var(--paper-dim);
+    line-height: 1.55;
+    margin: 0 0 16px;
+  }
+
+  .card-go{
+    font-family:'IBM Plex Mono', monospace;
+    font-size: 12.5px;
+    color: var(--moss-bright);
+    display:flex;
+    align-items:center;
+    gap: 6px;
+  }
+
+  .card-go svg{ width: 13px; height: 13px; transition: transform .18s ease; }
+  .card:hover .card-go svg{ transform: translate(2px,-2px); }
+
+  footer{
+    margin-top: 56px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    font-size: 12.5px;
+    color: var(--mono);
+    font-family:'IBM Plex Mono', monospace;
+    line-height: 1.7;
+  }
+
+  footer a{ color: var(--moss-bright); text-decoration: none; }
+  footer a:hover{ text-decoration: underline; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+
+    <header>
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 48 48" fill="none">
+          <path d="M24 6C14 6 6 14 6 24" stroke="#7fb98d" stroke-width="3.4" stroke-linecap="round"/>
+          <path d="M18 6L24 6L24 12" stroke="#7fb98d" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M24 42C34 42 42 34 42 24" stroke="#e8735a" stroke-width="3.4" stroke-linecap="round"/>
+          <path d="M30 42L24 42L24 36" stroke="#e8735a" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="24" cy="24" r="4" fill="#ece7db" opacity="0.9"/>
+        </svg>
+      </div>
+      <div>
+        <p class="eyebrow">Projeto S.I.R.I. — Mídia &amp; Posts</p>
+        <h1>Painel do <span>Post_BOT</span></h1>
+      </div>
+    </header>
+
+    <p class="lede">
+      O robô que mantém o Instagram girando: escolhe fotos da Biblioteca,
+      publica o carrossel do dia e devolve os originais pro lugar certo —
+      sozinho, todo santo dia.
+    </p>
+
+    <div class="status-strip">
+      <span class="dot"></span>
+      Rodando automaticamente todo dia às 10h (horário de Brasília)
+    </div>
+
+    <div class="grid">
+
+      <a class="card" href="https://docs.google.com/spreadsheets/" target="_blank" rel="noopener">
+        <p class="card-tag">Calendário</p>
+        <h2>Agendar posts</h2>
+        <p>Abrir a planilha e escrever a legenda de cada dia — é só isso que o robô precisa de você.</p>
+        <span class="card-go">Abrir planilha <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H8M17 7V16"/></svg></span>
+      </a>
+
+      <a class="card" href="https://github.com/" target="_blank" rel="noopener">
+        <p class="card-tag">Histórico</p>
+        <h2>Ver execuções</h2>
+        <p>Log de cada publicação: o que rodou, quando, e se deu tudo certo.</p>
+        <span class="card-go">Abrir Actions <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H8M17 7V16"/></svg></span>
+      </a>
+
+      <a class="card" href="https://github.com/" target="_blank" rel="noopener">
+        <p class="card-tag">Manual</p>
+        <h2>Rodar agora</h2>
+        <p>Não quer esperar o horário automático? Dispara uma publicação na hora.</p>
+        <span class="card-go">Abrir disparo <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H8M17 7V16"/></svg></span>
+      </a>
+
+      <a class="card" href="https://drive.google.com/" target="_blank" rel="noopener">
+        <p class="card-tag">Biblioteca</p>
+        <h2>Ver fotos</h2>
+        <p>A pasta de onde o robô puxa as imagens — suba fotos novas quando quiser.</p>
+        <span class="card-go">Abrir Drive <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M17 7H8M17 7V16"/></svg></span>
+      </a>
+
+    </div>
+
+    <footer>
+      Todos os links acima pedem seu login do Google ou do GitHub normalmente —
+      esse painel não guarda nem vê nenhuma senha.<br/>
+      Parte do <a href="#">hub interno da S.I.R.I.</a>
+    </footer>
+
+  </div>
+</body>
+</html>
