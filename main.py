@@ -338,6 +338,8 @@ def criar_container(media_type, url_campo, url_valor, legenda=None, is_carousel_
     if is_carousel_item:
         data["is_carousel_item"] = "true"
     resp = requests.post(f"{GRAPH_BASE}/{IG_BUSINESS_ACCOUNT_ID}/media", data=data)
+    if not resp.ok:
+        print("Resposta de erro da Meta:", resp.text)
     resp.raise_for_status()
     return resp.json()["id"]
 
