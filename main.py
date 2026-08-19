@@ -154,11 +154,27 @@ def marcar_post_como_publicado_no_app(post_id, tentativas=5):
     raise RuntimeError(f"Não foi possível marcar o post {post_id} como Publicado após {tentativas} tentativas.")
 
 
+def agora_em_brasilia():
+    """
+    Brasil não usa mais horário de verão desde 2019, então o fuso de
+    Brasília é sempre UTC-3, fixo — não precisa de nenhuma biblioteca
+    de fuso horário extra.
+    """
+    return datetime.datetime.utcnow() - datetime.timedelta(hours=3)
+
+
 def buscar_posts_de_hoje():
     """
-    Lê o banco de dados do app e retorna os posts agendados para hoje,
-    com "Instagram" dentro da lista `plataformas` e status "Aprovado"
-    (posts em Rascunho são ignorados de propósito).
+    Lê o banco de dados do app e retorna os posts de HOJE (no fuso de
+    Brasília) com "Instagram" dentro da lista `plataformas`, status
+    "Aprovado", e cujo horário programado já chegou (ou não tem
+    horário definido, nesse caso é considerado elegível o dia todo).
+    Posts em Rascunho são ignorados de propósito.
+
+    Como o robô roda a cada 15 minutos (veja o workflow), um post cujo
+    horário já passou mas ainda está "Aprovado" (por exemplo, porque a
+    execução anterior falhou por instabilidade) é automaticamente
+    tentado de novo na próxima execução — nada fica pra trás.
 
     Nota: o Facebook não precisa de checagem própria aqui — a própria
     API do Instagram já publica no Facebook automaticamente junto
@@ -169,7 +185,9 @@ def buscar_posts_de_hoje():
     """
     dados, _ = ler_banco_de_dados_app()
     posts = dados.get("posts", [])
-    hoje = datetime.date.today().isoformat()
+    agora = agora_em_brasilia()
+    hoje = agora.date().isoformat()
+    hora_atual = agora.strftime("%H:%M")
 
     posts_de_hoje = []
     for post in posts:
@@ -179,10 +197,14 @@ def buscar_posts_de_hoje():
         if not plataformas_do_post and post.get("plataforma"):
             plataformas_do_post = [post.get("plataforma")]
 
+        horario_post = (post.get("horario") or "").strip()
+        horario_ja_chegou = (not horario_post) or (horario_post <= hora_atual)
+
         if (
             post.get("data") == hoje
             and "Instagram" in plataformas_do_post
             and post.get("status") == "Aprovado"
+            and horario_ja_chegou
         ):
             posts_de_hoje.append(
                 {
@@ -387,7 +409,7 @@ def publicar_carrossel_automatico(drive_service, legenda, pasta_fotos_usadas_id)
         comprimida = TEMP_DIR / "comprimidas" / foto["name"]
         baixar_arquivo(drive_service, foto["id"], original)
         comprimir_imagem(original, comprimida)
-        url = publicar_midia_no_github(comprimida, f"carrossel_{datetime.date.today().isoformat()}_{i}")
+        url = publicar_midia_no_github(comprimida, f"carrossel_{agora_em_brasilia().date().isoformat()}_{i}")
         creation_ids.append(criar_container("IMAGE", "image_url", url, is_carousel_item=True))
 
     print("Aguardando a CDN atualizar...")
@@ -421,7 +443,7 @@ def publicar_story_automatico(drive_service, legenda, arquivo_indicado, pasta_fo
     else:
         comprimir_imagem(original, comprimida)
 
-    url = publicar_midia_no_github(comprimida, f"story_{datetime.date.today().isoformat()}")
+    url = publicar_midia_no_github(comprimida, f"story_{agora_em_brasilia().date().isoformat()}")
 
     print("Aguardando a CDN atualizar...")
     time.sleep(20)
@@ -449,7 +471,7 @@ def publicar_video_programado(drive_service, legenda, arquivo_indicado, pasta_pr
     baixar_arquivo(drive_service, item["id"], original)
     comprimir_video(original, comprimida)
 
-    url = publicar_midia_no_github(comprimida, f"video_{datetime.date.today().isoformat()}")
+    url = publicar_midia_no_github(comprimida, f"video_{agora_em_brasilia().date().isoformat()}")
 
     print("Aguardando a CDN atualizar...")
     time.sleep(20)
@@ -506,7 +528,7 @@ def publicar_carrossel_curado(drive_service, legenda, nome_pasta, pasta_programa
             comprimir_imagem(original, comprimida)
 
         url = publicar_midia_no_github(
-            comprimida, f"projeto_{nome_pasta}_{datetime.date.today().isoformat()}_{i}"
+            comprimida, f"projeto_{nome_pasta}_{agora_em_brasilia().date().isoformat()}_{i}"
         )
         media_type = "VIDEO" if video else "IMAGE"
         campo = "video_url" if video else "image_url"
