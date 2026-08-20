@@ -300,9 +300,37 @@ def mover_arquivo(drive_service, file_id, pasta_destino_id):
 # ---------------------------------------------------------------------------
 # Compressão de imagem e vídeo (mantém os originais intactos)
 # ---------------------------------------------------------------------------
+# O Instagram só aceita fotos com proporção entre 4:5 (retrato) e
+# 1.91:1 (paisagem). Fora desse intervalo, a API recusa a publicação
+# com erro "The aspect ratio is not supported".
+PROPORCAO_MINIMA_INSTAGRAM = 0.80   # 4:5 (retrato)
+PROPORCAO_MAXIMA_INSTAGRAM = 1.91   # paisagem
+
+
+def ajustar_proporcao_instagram(img: Image.Image) -> Image.Image:
+    """Corta a imagem (recorte central, sem distorcer) se a proporção
+    estiver fora do intervalo aceito pelo Instagram."""
+    largura, altura = img.size
+    proporcao = largura / altura
+
+    if proporcao < PROPORCAO_MINIMA_INSTAGRAM:
+        # Imagem alta demais (muito "vertical"): corta em cima/embaixo.
+        nova_altura = int(largura / PROPORCAO_MINIMA_INSTAGRAM)
+        topo = (altura - nova_altura) // 2
+        img = img.crop((0, topo, largura, topo + nova_altura))
+    elif proporcao > PROPORCAO_MAXIMA_INSTAGRAM:
+        # Imagem larga demais (muito "panorâmica"): corta nas laterais.
+        nova_largura = int(altura * PROPORCAO_MAXIMA_INSTAGRAM)
+        esquerda = (largura - nova_largura) // 2
+        img = img.crop((esquerda, 0, esquerda + nova_largura, altura))
+
+    return img
+
+
 def comprimir_imagem(caminho_original: Path, caminho_saida: Path, qualidade=82, largura_max=1440):
     with Image.open(caminho_original) as img:
         img = img.convert("RGB")
+        img = ajustar_proporcao_instagram(img)
         if img.width > largura_max:
             proporcao = largura_max / img.width
             nova_altura = int(img.height * proporcao)
@@ -311,12 +339,44 @@ def comprimir_imagem(caminho_original: Path, caminho_saida: Path, qualidade=82, 
         img.save(caminho_saida, "JPEG", quality=qualidade, optimize=True)
 
 
+def obter_dimensoes_video(caminho: Path):
+    comando = [
+        "ffprobe", "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=width,height",
+        "-of", "csv=s=x:p=0",
+        str(caminho),
+    ]
+    resultado = subprocess.run(comando, capture_output=True, text=True, check=True)
+    largura_str, altura_str = resultado.stdout.strip().split("x")
+    return int(largura_str), int(altura_str)
+
+
 def comprimir_video(caminho_original: Path, caminho_saida: Path, largura_max=1080):
     caminho_saida.parent.mkdir(parents=True, exist_ok=True)
+
+    filtros = []
+    try:
+        largura, altura = obter_dimensoes_video(caminho_original)
+        proporcao = largura / altura
+        if proporcao < PROPORCAO_MINIMA_INSTAGRAM:
+            nova_altura = int(largura / PROPORCAO_MINIMA_INSTAGRAM)
+            filtros.append(f"crop=iw:{nova_altura}:0:(ih-{nova_altura})/2")
+        elif proporcao > PROPORCAO_MAXIMA_INSTAGRAM:
+            nova_largura = int(altura * PROPORCAO_MAXIMA_INSTAGRAM)
+            filtros.append(f"crop={nova_largura}:ih:(iw-{nova_largura})/2:0")
+    except Exception as erro:
+        print(f"Aviso: não foi possível checar a proporção do vídeo ({erro}); seguindo sem recorte.")
+    # O recorte (se necessário) usa as dimensões ORIGINAIS do vídeo, por
+    # isso precisa vir antes do redimensionamento (scale) na cadeia de
+    # filtros — senão "iw"/"ih" do crop passariam a se referir ao
+    # tamanho já reduzido, e o corte sairia errado.
+    filtros.append(f"scale='min({largura_max},iw)':-2")
+
     comando = [
         "ffmpeg", "-y",
         "-i", str(caminho_original),
-        "-vf", f"scale='min({largura_max},iw)':-2",
+        "-vf", ",".join(filtros),
         "-c:v", "libx264", "-crf", "26", "-preset", "veryfast",
         "-c:a", "aac", "-b:a", "128k",
         str(caminho_saida),
