@@ -38,6 +38,7 @@ import os
 import io
 import json
 import time
+import uuid
 import base64
 import random
 import datetime
@@ -331,14 +332,38 @@ def eh_video(nome_arquivo: str) -> bool:
 # Publicar as mídias comprimidas no repositório GitHub (URL pública)
 # ---------------------------------------------------------------------------
 def publicar_midia_no_github(caminho_comprimido: Path, prefixo: str):
+    """
+    Copia a mídia comprimida pra pasta pública do repositório, commita
+    e envia. O nome do arquivo já inclui um sufixo aleatório curto
+    (uuid) além do prefixo, pra nunca colidir com o nome de outro post
+    — mesmo que dois posts usem exatamente a mesma foto de origem.
+
+    Se, ainda assim, o Git disser que "não há nada para commitar"
+    (por exemplo, coincidência rara de conteúdo idêntico já
+    existente), isso NÃO é tratado como erro: o arquivo já está lá com
+    o conteúdo certo, e a publicação segue normalmente.
+    """
     PUBLIC_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-    nome_final = f"{prefixo}{caminho_comprimido.suffix.lower()}"
+    sufixo_unico = uuid.uuid4().hex[:8]
+    nome_final = f"{prefixo}_{sufixo_unico}{caminho_comprimido.suffix.lower()}"
     destino = PUBLIC_ASSETS_DIR / nome_final
     destino.write_bytes(caminho_comprimido.read_bytes())
 
     subprocess.run(["git", "add", str(destino)], check=True)
-    subprocess.run(["git", "commit", "-m", f"Mídia do post: {nome_final}"], check=True)
-    subprocess.run(["git", "push"], check=True)
+
+    resultado_commit = subprocess.run(
+        ["git", "commit", "-m", f"Mídia do post: {nome_final}"],
+        capture_output=True, text=True,
+    )
+    if resultado_commit.returncode != 0:
+        saida = (resultado_commit.stdout or "") + (resultado_commit.stderr or "")
+        if "nothing to commit" in saida or "nada a submeter" in saida.lower():
+            print(f"Aviso: nada novo para commitar em {nome_final} (arquivo já existia idêntico). Seguindo normalmente.")
+        else:
+            print("Saída do git commit:", saida)
+            raise RuntimeError(f"Falha ao commitar {nome_final}: {saida}")
+    else:
+        subprocess.run(["git", "push"], check=True)
 
     return f"https://cdn.jsdelivr.net/gh/{GITHUB_REPOSITORY}@main/{PUBLIC_ASSETS_DIR}/{nome_final}"
 
