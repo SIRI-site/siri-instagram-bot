@@ -23,6 +23,9 @@ Fluxo:
    - "projeto": publica um carrossel com tudo que estiver na subpasta
      indicada em "arquivoBot" (dentro de "Posts Programados") — pra
      trabalhos com curadoria manual (fotos + vídeo de um cliente).
+     Os arquivos entram no carrossel na ORDEM NUMÉRICA do nome (ex:
+     "1.jpg", "2.jpg", "3.mp4" ...) — renomeie as fotos/vídeos na
+     pasta com números pra controlar a ordem final do post.
 4. Comprime as imagens/vídeos antes de publicar (originais no Drive
    nunca são alterados).
 5. Move os arquivos ORIGINAIS usados: fotos aleatórias vão para
@@ -36,6 +39,7 @@ Todas as credenciais vêm de variáveis de ambiente (GitHub Secrets).
 
 import os
 import io
+import re
 import json
 import time
 import uuid
@@ -44,9 +48,10 @@ import random
 import datetime
 import subprocess
 from pathlib import Path
+from urllib.parse import quote
 
 import requests
-from PIL import Image
+from PIL import Image, ImageOps
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
@@ -267,8 +272,15 @@ def obter_ou_criar_subpasta(drive_service, nome, pasta_pai_id):
 # ---------------------------------------------------------------------------
 # Drive: listar/buscar arquivos
 # ---------------------------------------------------------------------------
-def listar_fotos_disponiveis(drive_service, pasta_id):
-    query = f"'{pasta_id}' in parents and mimeType contains 'image/' and trashed = false"
+def listar_midias_disponiveis(drive_service, pasta_id):
+    """Lista fotos E vídeos na pasta (antes só listava fotos, o que
+    fazia o carrossel/story automático ignorar vídeos que estivessem
+    soltos na Biblioteca)."""
+    query = (
+        f"'{pasta_id}' in parents "
+        f"and (mimeType contains 'image/' or mimeType contains 'video/') "
+        f"and trashed = false"
+    )
     resultado = (
         drive_service.files()
         .list(q=query, fields="files(id, name, mimeType)", pageSize=1000)
@@ -309,6 +321,20 @@ def mover_arquivo(drive_service, file_id, pasta_destino_id):
     ).execute()
 
 
+def extrair_numero_ordem(nome_arquivo):
+    """
+    Extrai o número que aparece no INÍCIO do nome do arquivo (ex:
+    "1.jpg" -> 1, "02_capa.png" -> 2, "10-final.mp4" -> 10), pra
+    ordenar o carrossel de projeto na ordem que o usuário definiu
+    renomeando as fotos/vídeos na pasta. Arquivos sem número no início
+    vão pro final da lista, mantidos em ordem alfabética entre si.
+    """
+    match = re.match(r"^\s*(\d+)", nome_arquivo)
+    if match:
+        return (0, int(match.group(1)), nome_arquivo)
+    return (1, 0, nome_arquivo)
+
+
 # ---------------------------------------------------------------------------
 # Compressão de imagem e vídeo (mantém os originais intactos)
 # ---------------------------------------------------------------------------
@@ -341,6 +367,13 @@ def ajustar_proporcao_instagram(img: Image.Image) -> Image.Image:
 
 def comprimir_imagem(caminho_original: Path, caminho_saida: Path, qualidade=82, largura_max=1440):
     with Image.open(caminho_original) as img:
+        # Fotos de celular guardam a orientação "em pé" num metadado
+        # EXIF separado, não nos pixels em si. Sem aplicar isso
+        # explicitamente, a imagem processada perde essa informação e
+        # sai girada. exif_transpose "grava" a rotação certa direto
+        # nos pixels (e depois zera o metadado, já que não é mais
+        # necessário) — sempre na posição original correta.
+        img = ImageOps.exif_transpose(img)
         img = img.convert("RGB")
         img = ajustar_proporcao_instagram(img)
         if img.width > largura_max:
@@ -403,12 +436,28 @@ def eh_video(nome_arquivo: str) -> bool:
 # ---------------------------------------------------------------------------
 # Publicar as mídias comprimidas no repositório GitHub (URL pública)
 # ---------------------------------------------------------------------------
+def sanitizar_nome_arquivo(texto):
+    """
+    Remove acentos e qualquer caractere que não seja letra/número/traço,
+    pra garantir que o nome do arquivo publicado seja sempre seguro
+    tanto pro Git quanto pra virar URL pública (a Meta falha ao buscar
+    a mídia se a URL tiver caracteres não-ASCII sem codificação, como
+    aconteceu com uma pasta chamada "galpão").
+    """
+    import unicodedata
+    sem_acento = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", sem_acento)
+
+
 def publicar_midia_no_github(caminho_comprimido: Path, prefixo: str):
     """
     Copia a mídia comprimida pra pasta pública do repositório, commita
     e envia. O nome do arquivo já inclui um sufixo aleatório curto
     (uuid) além do prefixo, pra nunca colidir com o nome de outro post
-    — mesmo que dois posts usem exatamente a mesma foto de origem.
+    — mesmo que dois posts usem exatamente a mesma foto de origem. O
+    prefixo é sanitizado (sem acentos/caracteres especiais) e a URL
+    final é codificada, pra nunca falhar por causa do nome de uma
+    pasta ou arquivo com acento, espaço, etc.
 
     Se, ainda assim, o Git disser que "não há nada para commitar"
     (por exemplo, coincidência rara de conteúdo idêntico já
@@ -416,8 +465,9 @@ def publicar_midia_no_github(caminho_comprimido: Path, prefixo: str):
     o conteúdo certo, e a publicação segue normalmente.
     """
     PUBLIC_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+    prefixo_seguro = sanitizar_nome_arquivo(prefixo)
     sufixo_unico = uuid.uuid4().hex[:8]
-    nome_final = f"{prefixo}_{sufixo_unico}{caminho_comprimido.suffix.lower()}"
+    nome_final = f"{prefixo_seguro}_{sufixo_unico}{caminho_comprimido.suffix.lower()}"
     destino = PUBLIC_ASSETS_DIR / nome_final
     destino.write_bytes(caminho_comprimido.read_bytes())
 
@@ -437,7 +487,7 @@ def publicar_midia_no_github(caminho_comprimido: Path, prefixo: str):
     else:
         subprocess.run(["git", "push"], check=True)
 
-    return f"https://cdn.jsdelivr.net/gh/{GITHUB_REPOSITORY}@main/{PUBLIC_ASSETS_DIR}/{nome_final}"
+    return f"https://cdn.jsdelivr.net/gh/{GITHUB_REPOSITORY}@main/{PUBLIC_ASSETS_DIR}/{quote(nome_final)}"
 
 
 def configurar_git():
@@ -492,50 +542,61 @@ def publicar_container(creation_id):
 # Publicadores por tipo de post
 # ---------------------------------------------------------------------------
 def publicar_carrossel_automatico(drive_service, legenda, pasta_fotos_usadas_id, qtd_desejada=None):
-    fotos = listar_fotos_disponiveis(drive_service, DRIVE_BIBLIOTECA_FOLDER_ID)
-    if len(fotos) < MIN_FOTOS_CARROSSEL:
+    midias = listar_midias_disponiveis(drive_service, DRIVE_BIBLIOTECA_FOLDER_ID)
+    if len(midias) < MIN_FOTOS_CARROSSEL:
         raise RuntimeError(
-            f"Só há {len(fotos)} foto(s) na Biblioteca; são necessárias pelo menos {MIN_FOTOS_CARROSSEL}."
+            f"Só há {len(midias)} arquivo(s) na Biblioteca; são necessários pelo menos {MIN_FOTOS_CARROSSEL}."
         )
 
     if qtd_desejada:
-        # Post definiu sua própria quantidade de fotos; respeita esse
+        # Post definiu sua própria quantidade de itens; respeita esse
         # número, mas nunca menos que o mínimo nem mais do que existe.
-        qtd = max(MIN_FOTOS_CARROSSEL, min(qtd_desejada, len(fotos)))
+        qtd = max(MIN_FOTOS_CARROSSEL, min(qtd_desejada, len(midias)))
     else:
-        qtd = max(MIN_FOTOS_CARROSSEL, min(MAX_FOTOS_CARROSSEL, len(fotos)))
+        qtd = max(MIN_FOTOS_CARROSSEL, min(MAX_FOTOS_CARROSSEL, len(midias)))
 
-    escolhidas = random.sample(fotos, qtd)
+    escolhidas = random.sample(midias, qtd)
 
     creation_ids = []
-    for i, foto in enumerate(escolhidas):
-        original = TEMP_DIR / "originais" / foto["name"]
-        comprimida = TEMP_DIR / "comprimidas" / foto["name"]
-        baixar_arquivo(drive_service, foto["id"], original)
-        comprimir_imagem(original, comprimida)
-        url = publicar_midia_no_github(comprimida, f"carrossel_{agora_em_brasilia().date().isoformat()}_{i}")
-        creation_ids.append(criar_container("IMAGE", "image_url", url, is_carousel_item=True))
+    for i, item in enumerate(escolhidas):
+        original = TEMP_DIR / "originais" / item["name"]
+        comprimida = TEMP_DIR / "comprimidas" / item["name"]
+        baixar_arquivo(drive_service, item["id"], original)
 
-    print("Aguardando a CDN atualizar...")
-    time.sleep(20)
+        video = eh_video(item["name"])
+        if video:
+            comprimir_video(original, comprimida)
+        else:
+            comprimir_imagem(original, comprimida)
+
+        url = publicar_midia_no_github(comprimida, f"carrossel_{agora_em_brasilia().date().isoformat()}_{i}")
+        media_type = "VIDEO" if video else "IMAGE"
+        campo = "video_url" if video else "image_url"
+        creation_id = criar_container(media_type, campo, url, is_carousel_item=True)
+        # Espera o processamento terminar de verdade (não só a criação
+        # do container) antes de considerar esse item pronto — vale
+        # tanto pra vídeo quanto pra foto, evita publicar um carrossel
+        # com item "fantasma" que não chegou a processar a tempo.
+        aguardar_processamento(creation_id)
+        creation_ids.append(creation_id)
 
     container_id = criar_container("CAROUSEL", "children", ",".join(creation_ids), legenda=legenda)
     resultado = publicar_container(container_id)
     print("Carrossel publicado:", resultado)
 
-    for foto in escolhidas:
-        mover_arquivo(drive_service, foto["id"], pasta_fotos_usadas_id)
-        print(f"Original movido para Fotos Usadas: {foto['name']}")
+    for item in escolhidas:
+        mover_arquivo(drive_service, item["id"], pasta_fotos_usadas_id)
+        print(f"Original movido para Fotos Usadas: {item['name']}")
 
 
 def publicar_story_automatico(drive_service, legenda, arquivo_indicado, pasta_fotos_usadas_id):
     if arquivo_indicado:
         item = buscar_arquivo_por_nome(drive_service, arquivo_indicado, DRIVE_BIBLIOTECA_FOLDER_ID)
     else:
-        fotos = listar_fotos_disponiveis(drive_service, DRIVE_BIBLIOTECA_FOLDER_ID)
-        if not fotos:
-            raise RuntimeError("Não há fotos na Biblioteca para o story.")
-        item = random.choice(fotos)
+        midias = listar_midias_disponiveis(drive_service, DRIVE_BIBLIOTECA_FOLDER_ID)
+        if not midias:
+            raise RuntimeError("Não há fotos nem vídeos na Biblioteca para o story.")
+        item = random.choice(midias)
 
     original = TEMP_DIR / "originais" / item["name"]
     baixar_arquivo(drive_service, item["id"], original)
@@ -617,6 +678,12 @@ def publicar_carrossel_curado(drive_service, legenda, nome_pasta, pasta_programa
     )
     if len(itens) < 2:
         raise RuntimeError(f"A subpasta '{nome_pasta}' precisa ter pelo menos 2 arquivos para virar carrossel.")
+
+    # Ordena pelos números no início do nome do arquivo (1.jpg, 2.jpg,
+    # 3.mp4...), pra respeitar a ordem que o usuário definiu na pasta.
+    itens.sort(key=lambda item: extrair_numero_ordem(item["name"]))
+    print("Ordem do carrossel:", ", ".join(item["name"] for item in itens))
+
     itens = itens[:10]  # limite do Instagram para carrossel
 
     creation_ids = []
@@ -637,12 +704,12 @@ def publicar_carrossel_curado(drive_service, legenda, nome_pasta, pasta_programa
         media_type = "VIDEO" if video else "IMAGE"
         campo = "video_url" if video else "image_url"
         creation_id = criar_container(media_type, campo, url, is_carousel_item=True)
-        if video:
-            aguardar_processamento(creation_id)
+        # Espera confirmação de verdade (status FINISHED) pra qualquer
+        # item, não só vídeo — foi exatamente a falta dessa confirmação
+        # pra fotos que causou um carrossel de projeto ser marcado como
+        # publicado sem realmente aparecer no Instagram.
+        aguardar_processamento(creation_id)
         creation_ids.append(creation_id)
-
-    print("Aguardando a CDN atualizar...")
-    time.sleep(20)
 
     container_id = criar_container("CAROUSEL", "children", ",".join(creation_ids), legenda=legenda)
     resultado = publicar_container(container_id)
