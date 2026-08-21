@@ -2,12 +2,13 @@ name: Publicar post automático no Instagram
 
 on:
   schedule:
-    # Roda a cada 15 minutos, o dia inteiro. A cada execução, o robô
-    # confere se algum post de hoje já chegou no horário programado
-    # (e ainda não foi publicado) — assim ele publica no horário certo
-    # e, se alguma execução falhar por qualquer motivo, a próxima (15
-    # min depois) recupera o post pendente sozinha.
-    - cron: "*/15 * * * *"
+    # Roda a cada 15 minutos, mas "deslocado" 3 minutos dos horários
+    # redondos (:00, :15, :30, :45) de propósito — o próprio GitHub
+    # avisa oficialmente que esses horários "redondos" são os de maior
+    # congestionamento da plataforma, quando execuções agendadas podem
+    # atrasar bastante ou até serem puladas inteiras. Rodando em
+    # :03, :18, :33, :48, a chance de atraso/perda cai bastante.
+    - cron: "3,18,33,48 * * * *"
   workflow_dispatch: {}  # permite rodar manualmente pelo GitHub também
 
 permissions:
@@ -24,6 +25,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Instalar ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - name: Instalar dependências
         run: pip install -r requirements.txt
