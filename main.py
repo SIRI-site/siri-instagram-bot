@@ -433,6 +433,61 @@ def eh_video(nome_arquivo: str) -> bool:
     return Path(nome_arquivo).suffix.lower() in EXTENSOES_VIDEO
 
 
+EXTENSAO_POR_MIMETYPE = {
+    "video/mp4": ".mp4",
+    "video/quicktime": ".mov",
+    "video/x-m4v": ".m4v",
+    "video/x-matroska": ".mkv",
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/heic": ".heic",
+    "image/heif": ".heic",
+}
+
+
+def extensao_por_mimetype(mime_type):
+    if mime_type in EXTENSAO_POR_MIMETYPE:
+        return EXTENSAO_POR_MIMETYPE[mime_type]
+    if (mime_type or "").startswith("video/"):
+        return ".mp4"
+    if (mime_type or "").startswith("image/"):
+        return ".jpg"
+    return ""
+
+
+def nome_local_seguro(item):
+    """
+    Garante que o arquivo local sempre tenha uma extensão reconhecida
+    (necessária pro ffmpeg saber qual formato gerar na saída, e pro
+    Pillow identificar corretamente uma imagem) — mesmo quando o
+    arquivo foi salvo no Drive sem nenhuma extensão no nome (ex:
+    "RECORDAR" em vez de "RECORDAR.mp4"). A extensão certa é deduzida
+    a partir do mimeType real do arquivo, informado pelo próprio
+    Drive, não do nome que a pessoa deu a ele.
+    """
+    nome = item.get("name", "arquivo")
+    if Path(nome).suffix:
+        return nome
+    return nome + extensao_por_mimetype(item.get("mimeType", ""))
+
+
+def eh_video_item(item):
+    """
+    Determina se um item do Drive é vídeo com base no mimeType real
+    (mais confiável do que só olhar a extensão do nome do arquivo,
+    que às vezes vem vazia).
+    """
+    mime_type = item.get("mimeType", "") or ""
+    if mime_type.startswith("video/"):
+        return True
+    if mime_type.startswith("image/"):
+        return False
+    # Sem mimeType reconhecível: cai pro método antigo (extensão do nome).
+    return eh_video(item.get("name", ""))
+
+
 # ---------------------------------------------------------------------------
 # Publicar as mídias comprimidas no repositório GitHub (URL pública)
 # ---------------------------------------------------------------------------
@@ -559,18 +614,22 @@ def publicar_carrossel_automatico(drive_service, legenda, pasta_fotos_usadas_id,
 
     creation_ids = []
     for i, item in enumerate(escolhidas):
-        original = TEMP_DIR / "originais" / item["name"]
-        comprimida = TEMP_DIR / "comprimidas" / item["name"]
+        nome_local = nome_local_seguro(item)
+        original = TEMP_DIR / "originais" / nome_local
+        comprimida = TEMP_DIR / "comprimidas" / nome_local
         baixar_arquivo(drive_service, item["id"], original)
 
-        video = eh_video(item["name"])
+        video = eh_video_item(item)
         if video:
             comprimir_video(original, comprimida)
         else:
             comprimir_imagem(original, comprimida)
 
         url = publicar_midia_no_github(comprimida, f"carrossel_{agora_em_brasilia().date().isoformat()}_{i}")
-        media_type = "VIDEO" if video else "IMAGE"
+        # Dentro de um carrossel, um item de vídeo precisa do
+        # media_type "REELS" (não "VIDEO") — é uma exigência específica
+        # da API pra itens de carrossel, diferente de um vídeo avulso.
+        media_type = "REELS" if video else "IMAGE"
         campo = "video_url" if video else "image_url"
         creation_id = criar_container(media_type, campo, url, is_carousel_item=True)
         # Espera o processamento terminar de verdade (não só a criação
@@ -598,11 +657,12 @@ def publicar_story_automatico(drive_service, legenda, arquivo_indicado, pasta_fo
             raise RuntimeError("Não há fotos nem vídeos na Biblioteca para o story.")
         item = random.choice(midias)
 
-    original = TEMP_DIR / "originais" / item["name"]
+    nome_local = nome_local_seguro(item)
+    original = TEMP_DIR / "originais" / nome_local
     baixar_arquivo(drive_service, item["id"], original)
 
-    video = eh_video(item["name"])
-    comprimida = TEMP_DIR / "comprimidas" / item["name"]
+    video = eh_video_item(item)
+    comprimida = TEMP_DIR / "comprimidas" / nome_local
     if video:
         comprimir_video(original, comprimida)
     else:
@@ -631,8 +691,9 @@ def publicar_video_programado(drive_service, legenda, arquivo_indicado, pasta_pr
 
     item = buscar_arquivo_por_nome(drive_service, arquivo_indicado, pasta_programados_id)
 
-    original = TEMP_DIR / "originais" / item["name"]
-    comprimida = TEMP_DIR / "comprimidas" / item["name"]
+    nome_local = nome_local_seguro(item)
+    original = TEMP_DIR / "originais" / nome_local
+    comprimida = TEMP_DIR / "comprimidas" / nome_local
     baixar_arquivo(drive_service, item["id"], original)
     comprimir_video(original, comprimida)
 
@@ -682,17 +743,20 @@ def publicar_carrossel_curado(drive_service, legenda, nome_pasta, pasta_programa
     # Ordena pelos números no início do nome do arquivo (1.jpg, 2.jpg,
     # 3.mp4...), pra respeitar a ordem que o usuário definiu na pasta.
     itens.sort(key=lambda item: extrair_numero_ordem(item["name"]))
-    print("Ordem do carrossel:", ", ".join(item["name"] for item in itens))
 
+    if len(itens) > 10:
+        print(f"Aviso: a pasta tem {len(itens)} arquivos; o Instagram só aceita 10 por carrossel — usando só os 10 primeiros na ordem definida.")
     itens = itens[:10]  # limite do Instagram para carrossel
+    print("Ordem do carrossel:", ", ".join(item["name"] for item in itens))
 
     creation_ids = []
     for i, item in enumerate(itens):
-        original = TEMP_DIR / "originais" / item["name"]
-        comprimida = TEMP_DIR / "comprimidas" / item["name"]
+        nome_local = nome_local_seguro(item)
+        original = TEMP_DIR / "originais" / nome_local
+        comprimida = TEMP_DIR / "comprimidas" / nome_local
         baixar_arquivo(drive_service, item["id"], original)
 
-        video = eh_video(item["name"])
+        video = eh_video_item(item)
         if video:
             comprimir_video(original, comprimida)
         else:
@@ -701,7 +765,10 @@ def publicar_carrossel_curado(drive_service, legenda, nome_pasta, pasta_programa
         url = publicar_midia_no_github(
             comprimida, f"projeto_{nome_pasta}_{agora_em_brasilia().date().isoformat()}_{i}"
         )
-        media_type = "VIDEO" if video else "IMAGE"
+        # Dentro de um carrossel, um item de vídeo precisa do
+        # media_type "REELS" (não "VIDEO") — exigência específica da
+        # API pra itens de carrossel, diferente de um vídeo avulso.
+        media_type = "REELS" if video else "IMAGE"
         campo = "video_url" if video else "image_url"
         creation_id = criar_container(media_type, campo, url, is_carousel_item=True)
         # Espera confirmação de verdade (status FINISHED) pra qualquer
