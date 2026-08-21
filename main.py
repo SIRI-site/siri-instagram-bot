@@ -213,9 +213,21 @@ def buscar_posts_de_hoje():
                     "tipo": (post.get("tipoPost") or "carrossel").strip().lower(),
                     "legenda": post.get("legenda", ""),
                     "arquivo": (post.get("arquivoBot") or "").strip(),
+                    "qtd_fotos": _parse_int_opcional(post.get("qtdFotosCarrossel")),
                 }
             )
     return posts_de_hoje
+
+
+def _parse_int_opcional(valor):
+    """Converte pra número inteiro se possível; senão, retorna None
+    (o robô usa o padrão MIN/MAX_FOTOS_CARROSSEL nesse caso)."""
+    try:
+        if valor is None or str(valor).strip() == "":
+            return None
+        return int(valor)
+    except (TypeError, ValueError):
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -479,13 +491,20 @@ def publicar_container(creation_id):
 # ---------------------------------------------------------------------------
 # Publicadores por tipo de post
 # ---------------------------------------------------------------------------
-def publicar_carrossel_automatico(drive_service, legenda, pasta_fotos_usadas_id):
+def publicar_carrossel_automatico(drive_service, legenda, pasta_fotos_usadas_id, qtd_desejada=None):
     fotos = listar_fotos_disponiveis(drive_service, DRIVE_BIBLIOTECA_FOLDER_ID)
     if len(fotos) < MIN_FOTOS_CARROSSEL:
         raise RuntimeError(
             f"Só há {len(fotos)} foto(s) na Biblioteca; são necessárias pelo menos {MIN_FOTOS_CARROSSEL}."
         )
-    qtd = max(MIN_FOTOS_CARROSSEL, min(MAX_FOTOS_CARROSSEL, len(fotos)))
+
+    if qtd_desejada:
+        # Post definiu sua própria quantidade de fotos; respeita esse
+        # número, mas nunca menos que o mínimo nem mais do que existe.
+        qtd = max(MIN_FOTOS_CARROSSEL, min(qtd_desejada, len(fotos)))
+    else:
+        qtd = max(MIN_FOTOS_CARROSSEL, min(MAX_FOTOS_CARROSSEL, len(fotos)))
+
     escolhidas = random.sample(fotos, qtd)
 
     creation_ids = []
@@ -666,7 +685,9 @@ def main():
                     drive_service, post["legenda"], post["arquivo"], pasta_programados_id, pasta_publicados_id
                 )
             else:  # "carrossel" (padrão)
-                publicar_carrossel_automatico(drive_service, post["legenda"], pasta_fotos_usadas_id)
+                publicar_carrossel_automatico(
+                    drive_service, post["legenda"], pasta_fotos_usadas_id, qtd_desejada=post.get("qtd_fotos")
+                )
 
             marcar_post_como_publicado_no_app(post["id"])
 
