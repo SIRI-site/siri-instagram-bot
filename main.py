@@ -338,16 +338,23 @@ def extrair_numero_ordem(nome_arquivo):
 # ---------------------------------------------------------------------------
 # Compressão de imagem e vídeo (mantém os originais intactos)
 # ---------------------------------------------------------------------------
-# O Instagram só aceita fotos com proporção entre 4:5 (retrato) e
-# 1.91:1 (paisagem). Fora desse intervalo, a API recusa a publicação
-# com erro "The aspect ratio is not supported".
+# O Instagram só aceita fotos/vídeos de FEED com proporção entre 4:5
+# (retrato) e 1.91:1 (paisagem). Fora desse intervalo, a API recusa a
+# publicação com erro "The aspect ratio is not supported".
 PROPORCAO_MINIMA_INSTAGRAM = 0.80   # 4:5 (retrato)
 PROPORCAO_MAXIMA_INSTAGRAM = 1.91   # paisagem
+
+# Já o STORY (e Reels) exige uma proporção fixa de 9:16 pra ocupar a
+# tela toda — bem diferente da faixa do feed. Se a mídia não bater
+# exatamente com 9:16, o próprio Instagram acrescenta faixas/"aperta"
+# a imagem pra caber, em vez de preencher a tela (foi exatamente isso
+# que causou as fotos/vídeos "espremidos" no story).
+PROPORCAO_STORY = 9 / 16  # 0.5625
 
 
 def ajustar_proporcao_instagram(img: Image.Image) -> Image.Image:
     """Corta a imagem (recorte central, sem distorcer) se a proporção
-    estiver fora do intervalo aceito pelo Instagram."""
+    estiver fora do intervalo aceito pelo Instagram no FEED."""
     largura, altura = img.size
     proporcao = largura / altura
 
@@ -365,7 +372,32 @@ def ajustar_proporcao_instagram(img: Image.Image) -> Image.Image:
     return img
 
 
-def comprimir_imagem(caminho_original: Path, caminho_saida: Path, qualidade=82, largura_max=1440):
+def ajustar_proporcao_story(img: Image.Image) -> Image.Image:
+    """Corta a imagem (recorte central, sem distorcer) pra bater
+    exatamente com 9:16, a proporção fixa exigida pelo STORY pra
+    preencher a tela sem bordas."""
+    largura, altura = img.size
+    proporcao = largura / altura
+
+    if abs(proporcao - PROPORCAO_STORY) < 0.002:
+        return img  # já está praticamente em 9:16, não precisa cortar
+
+    if proporcao > PROPORCAO_STORY:
+        # Larga demais pro story (inclusive paisagem ou retrato "curto"
+        # tipo 3:4): corta as laterais até bater com 9:16.
+        nova_largura = int(altura * PROPORCAO_STORY)
+        esquerda = (largura - nova_largura) // 2
+        img = img.crop((esquerda, 0, esquerda + nova_largura, altura))
+    else:
+        # Mais alta que 9:16 (raro): corta em cima/embaixo.
+        nova_altura = int(largura / PROPORCAO_STORY)
+        topo = (altura - nova_altura) // 2
+        img = img.crop((0, topo, largura, topo + nova_altura))
+
+    return img
+
+
+def comprimir_imagem(caminho_original: Path, caminho_saida: Path, qualidade=82, largura_max=1440, modo="feed"):
     with Image.open(caminho_original) as img:
         # Fotos de celular guardam a orientação "em pé" num metadado
         # EXIF separado, não nos pixels em si. Sem aplicar isso
@@ -375,7 +407,7 @@ def comprimir_imagem(caminho_original: Path, caminho_saida: Path, qualidade=82, 
         # necessário) — sempre na posição original correta.
         img = ImageOps.exif_transpose(img)
         img = img.convert("RGB")
-        img = ajustar_proporcao_instagram(img)
+        img = ajustar_proporcao_story(img) if modo == "story" else ajustar_proporcao_instagram(img)
         if img.width > largura_max:
             proporcao = largura_max / img.width
             nova_altura = int(img.height * proporcao)
@@ -397,19 +429,28 @@ def obter_dimensoes_video(caminho: Path):
     return int(largura_str), int(altura_str)
 
 
-def comprimir_video(caminho_original: Path, caminho_saida: Path, largura_max=1080):
+def comprimir_video(caminho_original: Path, caminho_saida: Path, largura_max=1080, modo="feed"):
     caminho_saida.parent.mkdir(parents=True, exist_ok=True)
 
     filtros = []
     try:
         largura, altura = obter_dimensoes_video(caminho_original)
         proporcao = largura / altura
-        if proporcao < PROPORCAO_MINIMA_INSTAGRAM:
-            nova_altura = int(largura / PROPORCAO_MINIMA_INSTAGRAM)
-            filtros.append(f"crop=iw:{nova_altura}:0:(ih-{nova_altura})/2")
-        elif proporcao > PROPORCAO_MAXIMA_INSTAGRAM:
-            nova_largura = int(altura * PROPORCAO_MAXIMA_INSTAGRAM)
-            filtros.append(f"crop={nova_largura}:ih:(iw-{nova_largura})/2:0")
+        if modo == "story":
+            if abs(proporcao - PROPORCAO_STORY) >= 0.002:
+                if proporcao > PROPORCAO_STORY:
+                    nova_largura = int(altura * PROPORCAO_STORY)
+                    filtros.append(f"crop={nova_largura}:ih:(iw-{nova_largura})/2:0")
+                else:
+                    nova_altura = int(largura / PROPORCAO_STORY)
+                    filtros.append(f"crop=iw:{nova_altura}:0:(ih-{nova_altura})/2")
+        else:
+            if proporcao < PROPORCAO_MINIMA_INSTAGRAM:
+                nova_altura = int(largura / PROPORCAO_MINIMA_INSTAGRAM)
+                filtros.append(f"crop=iw:{nova_altura}:0:(ih-{nova_altura})/2")
+            elif proporcao > PROPORCAO_MAXIMA_INSTAGRAM:
+                nova_largura = int(altura * PROPORCAO_MAXIMA_INSTAGRAM)
+                filtros.append(f"crop={nova_largura}:ih:(iw-{nova_largura})/2:0")
     except Exception as erro:
         print(f"Aviso: não foi possível checar a proporção do vídeo ({erro}); seguindo sem recorte.")
     # O recorte (se necessário) usa as dimensões ORIGINAIS do vídeo, por
@@ -664,9 +705,9 @@ def publicar_story_automatico(drive_service, legenda, arquivo_indicado, pasta_fo
     video = eh_video_item(item)
     comprimida = TEMP_DIR / "comprimidas" / nome_local
     if video:
-        comprimir_video(original, comprimida)
+        comprimir_video(original, comprimida, modo="story")
     else:
-        comprimir_imagem(original, comprimida)
+        comprimir_imagem(original, comprimida, modo="story")
 
     url = publicar_midia_no_github(comprimida, f"story_{agora_em_brasilia().date().isoformat()}")
 
