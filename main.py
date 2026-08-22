@@ -727,8 +727,16 @@ def publicar_story_automatico(drive_service, legenda, arquivo_indicado, pasta_fo
 
 
 def publicar_video_programado(drive_service, legenda, arquivo_indicado, pasta_programados_id, pasta_publicados_id):
+    """
+    Usada tanto pro tipo 'video' quanto pro tipo 'reels' — na prática
+    são a mesma coisa pro Instagram: esse post SEMPRE é publicado
+    através do endpoint de REELS da Meta (media_type="REELS"), que
+    exige proporção fixa 9:16 pra preencher a tela toda — a mesma
+    exigência do Story. Por isso a compressão usa modo="story" aqui,
+    não a faixa mais larga do feed.
+    """
     if not arquivo_indicado:
-        raise RuntimeError("Post do tipo 'video' precisa do nome do arquivo em 'arquivoBot'.")
+        raise RuntimeError("Esse tipo de post precisa do nome do arquivo em 'arquivoBot'.")
 
     item = buscar_arquivo_por_nome(drive_service, arquivo_indicado, pasta_programados_id)
 
@@ -736,7 +744,7 @@ def publicar_video_programado(drive_service, legenda, arquivo_indicado, pasta_pr
     original = TEMP_DIR / "originais" / nome_local
     comprimida = TEMP_DIR / "comprimidas" / nome_local
     baixar_arquivo(drive_service, item["id"], original)
-    comprimir_video(original, comprimida)
+    comprimir_video(original, comprimida, modo="story")
 
     url = publicar_midia_no_github(comprimida, f"video_{agora_em_brasilia().date().isoformat()}")
 
@@ -746,7 +754,7 @@ def publicar_video_programado(drive_service, legenda, arquivo_indicado, pasta_pr
     creation_id = criar_container("REELS", "video_url", url, legenda=legenda)
     aguardar_processamento(creation_id)
     resultado = publicar_container(creation_id)
-    print("Vídeo programado publicado:", resultado)
+    print("Vídeo/Reels publicado:", resultado)
 
     mover_arquivo(drive_service, item["id"], pasta_publicados_id)
     print(f"Original movido para Posts Programados/Publicados: {item['name']}")
@@ -851,7 +859,7 @@ def main():
         try:
             if post["tipo"] == "story":
                 publicar_story_automatico(drive_service, post["legenda"], post["arquivo"], pasta_fotos_usadas_id)
-            elif post["tipo"] == "video":
+            elif post["tipo"] in ("video", "reels"):
                 publicar_video_programado(
                     drive_service, post["legenda"], post["arquivo"], pasta_programados_id, pasta_publicados_id
                 )
