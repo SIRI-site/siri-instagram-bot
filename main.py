@@ -744,7 +744,7 @@ def publicar_story_automatico(drive_service, legenda, arquivo_indicado, pasta_fo
     print(f"Original movido para Fotos Usadas: {item['name']}")
 
 
-def publicar_video_programado(drive_service, legenda, arquivo_indicado, pasta_programados_id, pasta_publicados_id):
+def publicar_video_programado(drive_service, legenda, arquivo_indicado, pasta_programados_id, pasta_publicados_id, pasta_fotos_usadas_id):
     """
     Usada tanto pro tipo 'video' quanto pro tipo 'reels' — na prática
     são a mesma coisa pro Instagram: esse post SEMPRE é publicado
@@ -752,11 +752,23 @@ def publicar_video_programado(drive_service, legenda, arquivo_indicado, pasta_pr
     exige proporção fixa 9:16 pra preencher a tela toda — a mesma
     exigência do Story. Por isso a compressão usa modo="story" aqui,
     não a faixa mais larga do feed.
-    """
-    if not arquivo_indicado:
-        raise RuntimeError("Esse tipo de post precisa do nome do arquivo em 'arquivoBot'.")
 
-    item = buscar_arquivo_por_nome(drive_service, arquivo_indicado, pasta_programados_id)
+    Se um nome de arquivo for indicado, usa esse arquivo específico
+    dentro de "Posts Programados" (fluxo de conteúdo pré-definido). Se
+    o campo Arquivo ficar vazio, sorteia um vídeo aleatório direto da
+    Biblioteca — igual o Story automático já faz — e move o original
+    pra "Fotos Usadas" depois de publicar, em vez de "Publicados".
+    """
+    if arquivo_indicado:
+        item = buscar_arquivo_por_nome(drive_service, arquivo_indicado, pasta_programados_id)
+        pasta_destino_apos_uso = pasta_publicados_id
+    else:
+        midias = listar_midias_disponiveis(drive_service, DRIVE_BIBLIOTECA_FOLDER_ID)
+        videos = [m for m in midias if eh_video_item(m)]
+        if not videos:
+            raise RuntimeError("Não há vídeos na Biblioteca pra publicar automaticamente como Reels/vídeo.")
+        item = random.choice(videos)
+        pasta_destino_apos_uso = pasta_fotos_usadas_id
 
     nome_local = nome_local_seguro(item)
     original = TEMP_DIR / "originais" / nome_local
@@ -774,8 +786,8 @@ def publicar_video_programado(drive_service, legenda, arquivo_indicado, pasta_pr
     resultado = publicar_container(creation_id)
     print("Vídeo/Reels publicado:", resultado)
 
-    mover_arquivo(drive_service, item["id"], pasta_publicados_id)
-    print(f"Original movido para Posts Programados/Publicados: {item['name']}")
+    mover_arquivo(drive_service, item["id"], pasta_destino_apos_uso)
+    print(f"Original movido: {item['name']}")
 
 
 def publicar_carrossel_curado(drive_service, legenda, nome_pasta, pasta_programados_id, pasta_publicados_id):
@@ -879,7 +891,7 @@ def main():
                 publicar_story_automatico(drive_service, post["legenda"], post["arquivo"], pasta_fotos_usadas_id)
             elif post["tipo"] in ("video", "reels"):
                 publicar_video_programado(
-                    drive_service, post["legenda"], post["arquivo"], pasta_programados_id, pasta_publicados_id
+                    drive_service, post["legenda"], post["arquivo"], pasta_programados_id, pasta_publicados_id, pasta_fotos_usadas_id
                 )
             elif post["tipo"] == "projeto":
                 publicar_carrossel_curado(
