@@ -613,14 +613,19 @@ def aguardar_processamento(creation_id, tentativas=30, intervalo=10):
     for _ in range(tentativas):
         resp = requests.get(
             f"{GRAPH_BASE}/{creation_id}",
-            params={"fields": "status_code", "access_token": IG_PAGE_ACCESS_TOKEN},
+            # "status" (texto legível) além de "status_code" (código),
+            # pra conseguir mostrar o motivo real quando der ERROR, em
+            # vez de só saber que deu erro sem saber o porquê.
+            params={"fields": "status_code,status", "access_token": IG_PAGE_ACCESS_TOKEN},
         )
         resp.raise_for_status()
-        status = resp.json().get("status_code")
-        if status == "FINISHED":
+        dados = resp.json()
+        status_code = dados.get("status_code")
+        if status_code == "FINISHED":
             return
-        if status == "ERROR":
-            raise RuntimeError(f"Falha ao processar mídia {creation_id} no Instagram.")
+        if status_code == "ERROR":
+            detalhe = dados.get("status") or "(a Meta não informou detalhe adicional)"
+            raise RuntimeError(f"Falha ao processar mídia {creation_id} no Instagram. Detalhe da Meta: {detalhe}")
         time.sleep(intervalo)
     raise TimeoutError(f"Tempo esgotado esperando o processamento de {creation_id}.")
 
