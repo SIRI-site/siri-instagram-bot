@@ -470,6 +470,13 @@ def comprimir_video(caminho_original: Path, caminho_saida: Path, largura_max=108
         # com ritmo constante evita isso, e é um gatilho conhecido de
         # falhas de processamento no Instagram (erro 2207076).
         "-fps_mode", "cfr",
+        # O vídeo original tinha uma marcação de espaço de cor antiga
+        # e incomum (bt470bg, padrão de TV analógica) em vez do padrão
+        # atual de vídeos de celular/streaming (bt709) — isso também
+        # é apontado como possível gatilho de falha silenciosa no
+        # processamento de vídeo por algumas plataformas. Forçando a
+        # marcação padrão aqui, por precaução.
+        "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
         "-c:a", "aac", "-b:a", "128k",
         str(caminho_saida),
     ]
