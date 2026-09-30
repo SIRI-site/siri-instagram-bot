@@ -1,0 +1,40 @@
+# Salvar no repositório siri-instagram-bot como:
+#   .github/workflows/keepalive-supabase.yml
+#
+# O que faz: a cada 2 dias, faz uma leitura mínima no banco Supabase para o
+# projeto não ser considerado inativo. Se o banco estiver pausado ou fora do ar,
+# o workflow FALHA e o GitHub avisa por e-mail.
+#
+# Secrets necessários (Settings > Secrets and variables > Actions):
+#   SUPABASE_URL       ex: https://xxxxxxxx.supabase.co
+#   SUPABASE_ANON_KEY  a chave "anon public" do projeto (pode ser exposta, não é a service_role)
+
+name: Supabase Keep-Alive
+
+on:
+  schedule:
+    # dia sim, dia não, ~08:17 no horário de Brasília (horário quebrado de propósito,
+    # o GitHub atrasa/perde execuções em horários redondos)
+    - cron: "17 11 */2 * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping no Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o resp.json -w "%{http_code}" \
+            "$SUPABASE_URL/rest/v1/keepalive?select=id&limit=1" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY")
+          echo "HTTP $code"
+          cat resp.json; echo
+          if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+            echo "Keep-alive falhou (HTTP $code). Projeto pode estar pausado."
+            exit 1
+          fi
